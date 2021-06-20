@@ -1,0 +1,168 @@
+package redis.test;
+
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Map;
+import java.util.Scanner;
+import java.lang.System;
+
+
+import redis.clients.jedis.Jedis;
+
+public class RedisCnx {
+	public static void main(String[] args){
+
+		
+			//Création d'une connexion avec la base redis
+			Jedis jedis = new Jedis("localhost");
+			System.out.println("Successfully connected");
+			
+			//Création des opérateurs du call center avec un ID, un nom / prenom 
+			Operateur operateur0= new Operateur("1", "Laiche", "Elyes");
+			Operateur operateur1 = new Operateur("2", "Richaudeau", "Maxime");
+			Operateur operateur2 = new Operateur("3", "Abdoulkarim", "Issa");
+			
+			
+			//Création d'un tableau d'operateur pour les passer en paramètre du constructeur d'appels
+			Operateur operateurs[] = {operateur0, operateur1, operateur2};
+			
+			//Création des appels
+			for (int i = 0; i < 10; i++) {
+				Appel appel = new Appel(operateurs);
+				appel2Redis(jedis, appel);
+			}
+			
+
+			
+			
+			//Création des Opérateur de la même façon que pour les appels
+			for (int i = 0; i < operateurs.length; i++) {
+				HashMap<String, String> hashOperateurs = new HashMap<String, String>();
+				hashOperateurs.put("Identifiant", operateurs[i].identifiant);
+				hashOperateurs.put("nom", operateurs[i].nom);
+				hashOperateurs.put("prenom", operateurs[i].prenom);
+				jedis.hmset("Operateur:" + operateurs[i].identifiant,hashOperateurs);				
+			}
+			System.out.println("everything's OK!");
+			
+			menu(jedis);
+			jedis.close();
+			
+
+	}
+	
+	public static void menu(Jedis jedis) {
+		boolean quitter = false;
+		Scanner sc = new Scanner(System.in);
+
+		do {
+			System.out.println("Que souhaitez vous faire ? \n (1) Afficher les appel en cours de traitement ? \n (2) Afficher les appel à affecter ? \n (3) Generer un nouvel appel  \n (4) Affecter un operateur à un appel \n (5) Quitter");
+			int choix = sc.nextInt();
+			switch (choix) {
+			case 1:
+				afficheTraitement(jedis);
+				break;
+			case 2:
+				afficheAffecter(jedis);
+				break;
+			case 3:
+				generationAppel(jedis);
+				break;
+			case 4:
+				affecterOperateur(jedis);
+				break;
+			case 5:
+				quitter = true;
+				break;
+			default:
+				break;
+			}
+		} while (!quitter);
+
+	}
+	
+	public static void afficheTraitement(Jedis jedis) {
+		System.out.println(jedis.smembers("StatusAppel:En cours")); //Affiche tous les id des appels en cours de traitement
+	}
+	
+	public static void afficheAffecter(Jedis jedis) {
+		System.out.println(jedis.smembers("StatusAppel:Non affecté")); //Affiche tous les id des appels à affecter
+	}
+	
+	public static void generationAppel(Jedis jedis) {
+		Scanner sc = new Scanner(System.in);
+ 
+		System.out.println("ID ?");
+		String id = sc.nextLine();
+		System.out.println("Numero ?");
+		String numero = sc.nextLine();
+		System.out.println("heure ?");
+		String heure = sc.nextLine();
+		System.out.println("Status");
+		String status = sc.nextLine();
+		System.out.println("Duree ?");
+		String duree = sc.nextLine();
+		System.out.println("Opérateur ?");
+		String operateur = sc.nextLine();
+		System.out.println("Texte ?");
+		String texte = sc.nextLine();
+		Appel appel = new Appel(id,numero,heure, status, duree, operateur, texte);
+		appel2Redis(jedis, appel);
+				
+	}
+	
+	public static void affecterOperateur(Jedis jedis) {
+		System.out.println("A quel appel voulez vous affecter un opérateur ? \n Id appel ?");
+				Scanner sc = new Scanner(System.in);
+                String id = sc.nextLine();
+                System.out.println("A quel opérateur voulez vous l'affecter ?");
+                String newOperateur = sc.nextLine();
+                
+                long réponse = jedis.hsetnx("Appel:" + id, "operateur", newOperateur); 
+                System.out.println(réponse+"-------------------------");// Commande HSETNX, qui renvoie 1 si l'enregistrement à bien été effectué (car le champs operateur n'existait pas) et 0 sinon.
+                if (réponse == 1) {
+                	 jedis.hset(id, "Status", "2"); //Actualisation du status
+                	 
+                	 //Affichage de l'appel modifié
+                	 Map<String, String> appel = jedis.hgetAll("Appel:" + id);
+                	 Iterator<String> keyIterator = appel.keySet().iterator();
+                	 Iterator<String> valueIterator = appel.values().iterator();
+                	 while (keyIterator.hasNext()) {
+                		 System.out.println(keyIterator.next());
+                		 System.out.println(valueIterator.next());
+                	 }
+                     System.out.println("L'appel à été mis a jour \n  Voici l'appel :");
+                } else {
+                   System.out.println("L'appel est déjà affecté");
+                	}
+                }
+	
+	public static void appel2Redis(Jedis jedis, Appel appel) {
+		//L'appel est mis dans une hashMap pour pouvoir l'inserer dans la base avec la commande HMSET
+		HashMap<String,String> appels = new HashMap<String, String>();
+		appels.put("Identifiant", appel.identifiant);
+		appels.put("Heure", appel.heure);
+		appels.put("Duree", appel.duree);
+		appels.put("Numero", appel.numero);
+		appels.put("Status", appel.status);
+		appels.put("Texte", appel.texte);
+		
+		//Associe un opérateur dans le cas ou il y en a un dans l'objet pour ne pas avoir de champs null
+		if (appel.operateur != null) {
+			appels.put("Operateur", appel.operateur);
+			jedis.hmset("Appel:"+ appel.identifiant , appels); //Créer l'appel
+			if (appel.status == "En cours") {
+				jedis.sadd("OperateurAppelEnCour:" + appel.operateur, appel.identifiant); //Indexations dans un set en fonction de l'opérateur (si l'appel est en cour)
+			}
+		} else {
+			jedis.hmset("Appel:"+ appel.identifiant , appels);
+		}
+		jedis.sadd("StatusAppel:"+appel.status, appel.identifiant ); //Indexations dans un set en fonction du status
+		
+	}
+}
+
+
+
+
+
